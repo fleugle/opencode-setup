@@ -1,0 +1,28 @@
+{
+  "timeout_seconds": 0,
+  "notify_on_fallback": true,
+  "agents": {
+    "fast": {
+      "fallback_models": [
+        "coarena/deepseek-v4-1-flash-1017",
+        "google/gemini-3.8-flash",
+        "nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b"
+      ]
+    },
+    "medium": {
+      "fallback_models": [
+        "google/gemini-3.8-flash",
+        "coarena/gemini-3-8-flash",
+        "opencode/deepseek-v4.1-flash-free",
+        "nvidia/nvidia/nemotron-3.5-super-vl-120b-a12b"
+      ]
+    },
+    "heavy": {
+      "fallback_models": [
+        "google/gemini-3.8-flash",
+        "coarena/gemini-3-8-flash",
+        "nvidia/nvidia/nemotron-3-ultra-550b-a55b"
+      ]
+    }
+  }
+}

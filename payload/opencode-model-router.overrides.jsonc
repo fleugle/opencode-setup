@@ -1,0 +1,84 @@
+{
+  // Model-router tiers for this machine (plugin: opencode-model-router@2.9.1).
+  // Applied over the plugin's bundled tiers.json; keep this file readable.
+  // fast   = cheap/bulk work, medium = implementation, heavy = planning/review.
+  "activePreset": "custom",
+  "routing": {
+    "engine": "shadow",
+    "roles": {}
+  },
+  "enforcement": {
+    "escalate": {
+      // Adding a routing block otherwise enables variant retries.
+      "variantSteps": "none"
+    }
+  },
+  // The empty candidate preserves each tier's current provider default.
+  "presets": {
+    "custom": {
+      "fast": {
+        // readOnly:false on purpose: bulk repetitive work should not burn the
+        // strong models. Set it back to true to make @fast inspection-only.
+        "readOnly": false,
+        "model": "opencode/deepseek-v4.1-flash-free",
+        "costRatio": 1,
+        "candidates": [
+          { "variant": "low" },
+          {},
+          { "variant": "high" },
+          { "variant": "max" }
+        ],
+        "steps": 30,
+        "description": "For search, reads and repetitive bulk work",
+        "whenToUse": [
+          "Codebase exploration and search",
+          "Repetitive mechanical edits across many files",
+          "Grep/glob operations and simple file reads",
+          "Bulk renames, formatting-only or boilerplate work"
+        ]
+      },
+      "medium": {
+        "model": "openai/gpt-6.1-terra",
+        "costRatio": 5,
+        "candidates": [
+          { "variant": "none" },
+          { "variant": "low" },
+          { "variant": "medium" },
+          {},
+          { "variant": "high" },
+          { "variant": "xhigh" },
+          { "variant": "max" }
+        ],
+        "steps": 50,
+        "description": "For implementation, refactoring, tests and code review",
+        "whenToUse": [
+          "Feature implementation",
+          "Refactoring and bug fixes",
+          "Writing tests",
+          "Code review"
+        ]
+      },
+      "heavy": {
+        "model": "openai/gpt-6.2-astra",
+        "costRatio": 20,
+        "candidates": [
+          { "variant": "low" },
+          { "variant": "medium" },
+          {},
+          { "variant": "high" },
+          { "variant": "xhigh" },
+          { "variant": "max" }
+        ],
+        "steps": 120,
+        "description": "For planning, architecture, complex debugging and security",
+        "whenToUse": [
+          "Planning and task decomposition",
+          "Architecture decisions and trade-offs",
+          "Complex debugging after repeated failures",
+          "Security review",
+          "Performance optimisation"
+        ]
+      }
+    }
+  }
+}

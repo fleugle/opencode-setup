@@ -1,0 +1,12 @@
+node_modules/
+/.local/
+/.env
+/.env.*
+**/service.json
+**/auth.json
+**/*.db
+**/*.db-*
+**/*.bak
+**/*.log
+/payload/opencode.jsonc
+/payload/opencode-model-router.state.json

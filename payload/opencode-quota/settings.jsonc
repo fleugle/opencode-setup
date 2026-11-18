@@ -1,0 +1,57 @@
+{
+  "providers": {
+    "checking": {
+      "waitForQuotaReset": false
+    },
+    "custom": [
+      {
+        "id": "coarena",
+        "providerId": "coarena",
+        "apiKeyEnv": "COARENA_API_KEY",
+        "label": "Coarena",
+        "mode": "remote-api",
+        "url": "https://coarena.ai/api/v1/limits",
+        "format": "json-v1",
+        "adapter": {
+          "mappings": [
+            {
+              "resultType": "quota",
+              "name": "Daily",
+              "label": "Daily:",
+              "unit": "USD",
+              "unitPosition": "suffix",
+              "resetTime": {
+                "path": ["data", "today", "resets_at"],
+                "encoding": "unix-milliseconds"
+              },
+              "metric": {
+                "type": "remaining-limit",
+                "remaining": {
+                  "path": [
+                    "data",
+                    "today",
+                    "left_usd"
+                  ]
+                },
+                "limit": {
+                  "path": [
+                    "data",
+                    "usd_per_day"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "enabled": true
+      }
+    ]
+  },
+  "statusLine": {
+    "show": false,
+    "composerPill": false
+  },
+  "toast": {
+    "show": false
+  }
+}
