@@ -1,13 +1,20 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "playwright": {
+        "type": "local",
+        "command": ["node", "playwright-mcp/node_modules/@playwright/mcp/cli.js", "--browser", "chromium", "--isolated"]
+      }
+    }
+  },
   "providers": {
     "coarena": {
       "name": "Coarena",
       "env": [],
       "package": "@opencode/ai/providers/openai-compatible",
       "settings": {
-        "baseURL": "https://coarena.ai/api/v1",
-        "apiKey": "{env:COARENA_API_KEY}"
+        "baseURL": "https://coarena.ai/api/v1"
       },
       "models": {
         "gemini-3-8-flash": {
@@ -64,7 +71,8 @@
     "@hueyexe/opencode-ensemble@0.21.5",
     "./router-stats-desktop",
     "@slkiser/opencode-quota@6.3.0",
-    "opencode-runtime-fallback@0.3.1"
+    "opencode-runtime-fallback@0.3.1",
+    "superpowers@git+https://github.com/obra/superpowers.git#v7.0.2"
   ],
   "provider": {
     "openai": {},

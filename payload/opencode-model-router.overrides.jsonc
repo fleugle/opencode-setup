@@ -4,7 +4,7 @@
   // fast   = cheap/bulk work, medium = implementation, heavy = planning/review.
   "activePreset": "custom",
   "routing": {
-    "engine": "shadow",
+    "engine": "enforce",
     "roles": {}
   },
   "enforcement": {
@@ -38,13 +38,10 @@
         ]
       },
       "medium": {
-        "model": "openai/gpt-6.1-terra",
+        "model": "openai/gpt-6.2-sol",
         "costRatio": 5,
         "candidates": [
-          { "variant": "none" },
-          { "variant": "low" },
           { "variant": "medium" },
-          {},
           { "variant": "high" },
           { "variant": "xhigh" },
           { "variant": "max" }
@@ -60,14 +57,12 @@
       },
       "heavy": {
         "model": "openai/gpt-6.2-astra",
-        "costRatio": 20,
+        "costRatio": 10,
         "candidates": [
           { "variant": "low" },
           { "variant": "medium" },
           {},
-          { "variant": "high" },
-          { "variant": "xhigh" },
-          { "variant": "max" }
+          { "variant": "high" }
         ],
         "steps": 120,
         "description": "For planning, architecture, complex debugging and security",

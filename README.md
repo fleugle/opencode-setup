@@ -4,7 +4,7 @@ Install the same shared OpenCode configuration on multiple machines from a Git r
 
 ## Install on another device
 
-1. Install OpenCode Desktop, Git, and Node.js 22 or newer (tested with Node 24 and OpenCode 2.3.2 on Windows). Use a checkout outside the live OpenCode config directory. If using a ZIP, extract it and skip the Git commands below. The Node installer itself does not need network access. OpenCode downloads its pinned registry plugins on first startup.
+1. Install [OpenCode Desktop](https://opencode.ai/docs/), Git, and Node.js 22 or newer with npm on Windows, macOS, or Linux. Use a checkout outside the live OpenCode config directory. If using a ZIP, extract it and skip the Git commands below. The first install needs network access to provision Playwright MCP and Chromium. OpenCode downloads its pinned registry plugins on first startup.
 2. Clone the setup repository (replace `YOUR_REPO_URL` with its actual URL) and choose your tested revision:
 
    ```sh
@@ -19,7 +19,11 @@ Install the same shared OpenCode configuration on multiple machines from a Git r
 
 For an update, fetch and check out the desired revision, then rerun `node install.mjs`. Do not edit the installed shared files as your usual update workflow: change the setup repo, review the diff, and deploy that revision instead.
 
-Router Stats includes its built Desktop bundle; no build step is required on the target. For the optional Edge browser MCP, install Microsoft Edge and run `node setup-edge.mjs` after the baseline installer. This installs the locked Playwright MCP and points it at a dedicated browser profile. Keep the checkout in place. The helper creates a local override only when safe; if you already have a different override, it prints the entry to merge and leaves the file untouched. Both scripts support `--target DIR` for a nondefault config folder.
+The installer records the OS, source location, and destination in the installed `opencode-setup` skill so it can find the right checkout without assuming a Windows path or a fixed folder name. If you move the checkout, rerun the installer from its new location. A ZIP copy can install the setup, but it is not a Git checkout for editing shared settings.
+
+By default the destination is `~/.config/opencode` on all three platforms, or `$XDG_CONFIG_HOME/opencode` when set. An explicit `OPENCODE_CONFIG_DIR` is honored by the installer; confirm a nondefault location with `opencode debug paths config`. `--target DIR` is for sandbox tests or an already configured destination: the flag alone does not redirect OpenCode. A linked parent directory is supported, but the config root and managed paths must not themselves be symlinks.
+
+Router Stats includes its built Desktop bundle; no build step is required on the target. The main installer also provisions [Microsoft Playwright MCP](https://github.com/microsoft/playwright-mcp) and its bundled Chromium under the OpenCode config directory. The managed server is named `playwright`. It does not require Microsoft Edge, a browser extension, or a separate setup command. On Linux, Chromium may additionally need [system dependencies](https://playwright.dev/docs/browsers#install-system-dependencies).
 
 ## Private overrides
 
@@ -27,10 +31,23 @@ The installer supplies global `opencode.json`. Keep machine-specific overrides i
 
 **Existing installations:** back up the live config privately first. An older, full `opencode.jsonc` is not a small override: values there can mask the newly installed baseline. Keep only the settings intended for that device in the local override. Never move a backup containing credentials into this repository.
 
-Use `node install.mjs --keep-local` on a device with an intentional local overlay (including Edge). It also skips conflicting locally modified files and reports their names. Without the flag, the installer stops on conflicts before writing. Modified files are never silently replaced, and obsolete files are reported for manual removal rather than deleted.
+If you want this setup to **replace** a device's existing shared configuration instead of keeping its old overrides, preview the one-time takeover, then apply it:
+
+```sh
+node install.mjs --take-over --dry-run
+node install.mjs --take-over
+```
+
+Review the preview before applying. Takeover backs up displaced files outside the active config directory, including the old global `opencode.jsonc` and extra auto-loaded global plugins. It does not migrate credentials from the old config or change `service.json`, saved logins, chats, or project files. Keep the printed backup private; it may contain old keys. Use the normal `node install.mjs` command for future shared updates.
+
+If you need to roll back, close Desktop and restore the backed-up files to the original config folder using the same relative paths. Use the preview to identify files that were written but not backed up; remove only the files created by that takeover. Restore the installer manifest if it was backed up, or remove the newly created manifest if there wasn't one before. Rollback is manual.
+
+After takeover, open Desktop in a folder without project-specific OpenCode settings. In the CLI, `opencode plugin list` lists loaded plugins; on Windows use the bundled `opencode-cli.exe` if `opencode` is not on PATH. Check for Router Stats (`opencode-model-router`), Quota, Ensemble, Runtime Fallback, Ponytail, Claude Parity, and Graphify. Check that Router Stats opens and the bottom-left Quota button appears; the default plugin list and a successful copy alone do not prove those features loaded.
+
+Use `node install.mjs --keep-local` on a device with an intentional local overlay. It also skips conflicting locally modified files and reports their names. Without the flag, the installer stops on conflicts before writing. Modified files are never silently replaced, and obsolete files are reported for manual removal rather than deleted. When migrating from the old Edge helper, back up the overlay privately and remove only `mcp.servers.edge` after the new `playwright` server is connected. The old Edge profile is not imported or deleted.
 
 ## Package notes
 
-The router's `dist/router-tool.mjs` bundles the runtime `tool` export from `@opencode-ai/plugin@1.18.18` with Zod. Relative imports resolve it without relying on a parent `node_modules` directory. Desktop supplies its GUI host modules. The optional Windows environment skill from the original workstation was omitted because it described that specific installation. Optional tools referenced by skills (for example, Graphify) still need their own installation.
+The router's `dist/router-tool.mjs` bundles the runtime `tool` export from `@opencode-ai/plugin@1.18.18` with Zod. Relative imports resolve it without relying on a parent `node_modules` directory. Desktop supplies its GUI host modules. Router Stats and the shadow-routing setup do not require the router's Windows-only executor. Optional tools referenced by skills (for example, Graphify) still need their own installation. Installer tests have run on Windows; macOS and Linux have not yet had a native Desktop smoke test.
 
 Run `node --test test/install.test.mjs` to test installation behavior without changing your own OpenCode config.

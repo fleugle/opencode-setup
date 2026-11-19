@@ -48,10 +48,22 @@
     ]
   },
   "statusLine": {
-    "show": false,
-    "composerPill": false
+    "composerPill": false,
+    "home": true,
+    "window": {
+      "openai": "five_hour"
+    }
   },
   "toast": {
     "show": false
+  },
+  "sidebar": {
+    "show": true
+  },
+  "collapsed": {
+    "show": false,
+    "window": {
+      "openai": "five_hour"
+    }
   }
 }

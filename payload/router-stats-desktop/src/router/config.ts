@@ -615,7 +615,8 @@ export function configPath(): string {
  * update. Anything here is deep-merged over the bundled config.
  */
 export function overridePath(): string {
-  return join(homedir(), ".config", "opencode", OVERRIDE_FILENAME);
+  return join(process.env.OPENCODE_CONFIG_DIR ||
+    join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opencode"), OVERRIDE_FILENAME);
 }
 
 /**

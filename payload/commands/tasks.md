@@ -5,7 +5,7 @@ description: Show running sessions and background work (Claude Code /tasks parit
 Report active work $ARGUMENTS.
 
 Run `opencode api get /api/session/active` (use the bundled `opencode-cli.exe`
-from the windows-env skill if `opencode` is not on PATH). It returns a map of
+from the Desktop installation on Windows if `opencode` is not on PATH). It returns a map of
 session ID to state, e.g. `{"ses_...": {"type": "running"}}`.
 
 For each ID, look up title, agent and model in `opencode api get /api/session`

@@ -5,7 +5,7 @@ description: Insights report on how I work, from real usage data (Claude Code /i
 Analyze my recent OpenCode usage $ARGUMENTS.
 
 Get the data first: `opencode stats --full --json` (use the bundled
-`opencode-cli.exe` from the windows-env skill if `opencode` is not on PATH). Add
+Desktop's bundled `opencode-cli.exe` on Windows if `opencode` is not on PATH). Add
 `--days N` to narrow the window, or `--project .` for this project only.
 
 Then report: the task types I run most, the models/agents/tools I lean on, where
