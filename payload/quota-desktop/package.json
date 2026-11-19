@@ -1,0 +1,76 @@
+{
+  "name": "@slkiser/opencode-quota",
+  "version": "6.3.0",
+  "description": "OpenCode quota & tokens usage with zero context window pollution. Supports GitHub Copilot, OpenAI (Plus/Pro), Google AGY, Z.ai coding plan and more.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "opencode-quota": "./dist/bin/opencode-quota.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui.d.ts",
+      "default": "./dist/tui.js"
+    },
+    "./gui-experimental": "./dist/gui-experimental.cjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "opencode",
+    "plugin",
+    "quota",
+    "toast",
+    "github",
+    "copilot",
+    "google",
+    "gemini",
+    "claude"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slkiser/opencode-quota.git"
+  },
+  "bugs": {
+    "url": "https://github.com/slkiser/opencode-quota/issues"
+  },
+  "homepage": "https://github.com/slkiser/opencode-quota#readme",
+  "dependencies": {
+    "@opentelemetry/api": "~1.9.1",
+    "jsonc-parser": "^3.3.1"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.0.28",
+    "@opentui/core": ">=0.5.17",
+    "@opentui/solid": ">=0.5.17",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/core": {
+      "optional": true
+    },
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": "^22.13.0 || >=23.4.0"
+  }
+}

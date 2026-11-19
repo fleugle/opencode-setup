@@ -6,8 +6,69 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 
 const installer = fileURLToPath(new URL('../install.mjs', import.meta.url));
+
+test('installs the local Quota package and provisions its locked dependencies once', t => {
+  const f = fixture(t);
+  const shipped = new URL('../payload/', import.meta.url);
+  fs.copyFileSync(new URL('opencode.json', shipped), path.join(f.payload, 'opencode.json'));
+  fs.cpSync(new URL('quota-desktop/', shipped), path.join(f.payload, 'quota-desktop'), { recursive: true });
+  const fakeNpm = path.join(f.root, 'fake-npm.cjs');
+  fs.writeFileSync(fakeNpm, `
+    const fs = require('node:fs');
+    for (const id of ['@opencode/plugin', '@opentelemetry/api', 'jsonc-parser']) {
+      fs.mkdirSync('node_modules/' + id, { recursive: true });
+      fs.writeFileSync('node_modules/' + id + '/package.json', '{}');
+    }
+    fs.writeFileSync('npm-args', process.argv.slice(2).join(' '));
+  `);
+  const run = (...args) => spawnSync(process.execPath, [path.join(f.source, 'install.mjs'), '--target', f.target, ...args], {
+    encoding: 'utf8', env: { ...process.env, npm_execpath: fakeNpm }
+  });
+  const preview = run('--dry-run');
+  assert.equal(preview.status, 0, preview.stderr);
+  assert.match(preview.stdout, /Ensure pinned Quota Desktop dependencies/);
+  assert.equal(fs.existsSync(f.target), false);
+
+  const first = run();
+  assert.equal(first.status, 0, first.stderr);
+  assert.match(first.stdout, /Installing pinned Quota Desktop dependencies/);
+  const config = JSON.parse(fs.readFileSync(path.join(f.target, 'opencode.json')));
+  assert.ok(config.plugins.includes('./quota-desktop'));
+  assert.ok(!config.plugins.some(plugin => plugin.startsWith('@slkiser/opencode-quota@')));
+  const dir = path.join(f.target, 'quota-desktop');
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json')));
+  assert.equal(manifest.name, '@slkiser/opencode-quota');
+  assert.equal(manifest.version, '6.3.0');
+  assert.deepEqual(Object.keys(manifest.exports), ['.', './server', './tui', './gui-experimental']);
+  for (const entry of Object.values(manifest.exports).flatMap(value => typeof value === 'string' ? [value] : Object.values(value)))
+    assert.ok(fs.statSync(path.join(dir, entry)).isFile(), entry);
+  assert.ok(fs.statSync(path.join(dir, 'LICENSE')).isFile());
+  assert.equal(fs.readFileSync(path.join(dir, 'npm-args'), 'utf8'), 'ci --ignore-scripts --no-audit --no-fund');
+  const second = run();
+  assert.equal(second.status, 0, second.stderr);
+  assert.doesNotMatch(second.stdout, /Installing pinned Quota/);
+});
+
+test('Quota dialog palette applies saved colors and clears reset values', () => {
+  const bundle = fs.readFileSync(new URL('../payload/quota-desktop/dist/gui-experimental.cjs', import.meta.url), 'utf8');
+  const helper = bundle.match(/^function applyDialogPalette\([\s\S]*?^\}/m)?.[0];
+  const upstreamColorHelpers = bundle.match(/var en=\/.*?function tn\(e\)\{return`var\(--oq-n-\$\{e\}\)`\}/)?.[0];
+  assert.ok(helper && upstreamColorHelpers);
+  const apply = runInNewContext(`${upstreamColorHelpers}\n${helper}\napplyDialogPalette`);
+  const properties = new Map();
+  const dialog = { style: { setProperty: properties.set.bind(properties), removeProperty: properties.delete.bind(properties) } };
+  apply(dialog, { 'colors.good': '#50dc53', 'colors.empty': '#454545', 'colors.warning': 'yellow', 'colors.low': '#ff6666' });
+  assert.deepEqual(Object.fromEntries(properties), {
+    '--oq-good': '#50dc53', '--oq-empty': '#454545', '--oq-warning': 'var(--oq-n-yellow)', '--oq-low': '#ff6666'
+  });
+  apply(dialog, { 'colors.warning': 'bar', 'colors.low': 'invalid' });
+  assert.equal(properties.size, 0);
+  assert.match(bundle, /e\.effect\)\(\(\)=>applyDialogPalette\(t,A\(\)\?\.settings\?\.values\)\)/);
+  assert.match(bundle, /\.oq-head > \[role="group"\] \{ padding: 3px; \}/);
+});
 
 test('renders absolute Playwright paths and previews without provisioning', t => {
   const f = fixture(t);

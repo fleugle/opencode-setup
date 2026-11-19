@@ -1,0 +1,279 @@
+/**
+ * OpenAI (ChatGPT) quota fetcher
+ *
+ * Reads OpenCode's OpenAI OAuth logins and queries
+ * https://chatgpt.com/backend-api/wham/usage
+ */
+import { sanitizeDisplayText } from "./display-sanitize.js";
+import { clampPercent } from "./format-utils.js";
+import { failureFacts, requestJson } from "./http.js";
+import { finiteNumber, isRecord } from "./json-guards.js";
+import { activeCredentialRows, readActiveCredentialRowsCached, readCredentialRows, readOAuthLogin, } from "./opencode-auth.js";
+import { deriveResolvedAuthIdentity, loginListIdentity, } from "./resolved-auth-identity.js";
+function parseJwtPayload(token) {
+    const parts = token.split(".");
+    if (parts.length !== 3)
+        return null;
+    try {
+        return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    }
+    catch {
+        return null;
+    }
+}
+const WINDOW_KIND_BY_DURATION = {
+    18000: "hourly",
+    604800: "weekly",
+    2628000: "monthly",
+};
+function isoFromMilliseconds(milliseconds) {
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0)
+        return undefined;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+function positiveSeconds(value) {
+    const seconds = finiteNumber(value);
+    return seconds !== undefined && seconds > 0 ? seconds : undefined;
+}
+/** `reset_at` (epoch seconds) when it is a representable date, else `reset_after_seconds` from now. */
+function resetTimeIso(window, observedAtMs) {
+    const resetAt = positiveSeconds(window.reset_at);
+    const resetAfter = positiveSeconds(window.reset_after_seconds);
+    return ((resetAt === undefined ? undefined : isoFromMilliseconds(Math.round(resetAt * 1000))) ??
+        (resetAfter === undefined
+            ? undefined
+            : isoFromMilliseconds(observedAtMs + Math.round(resetAfter * 1000))));
+}
+/** A window reporting `used_percent` (rate limits) or `remaining_percent` (spend limits). */
+function parseWindowValue(window, observedAtMs, percentField = "used_percent") {
+    if (!isRecord(window))
+        return null;
+    const percent = finiteNumber(window[percentField]);
+    if (percent === undefined)
+        return null;
+    return {
+        percentRemaining: clampPercent(percentField === "used_percent" ? 100 - percent : percent),
+        resetTimeIso: resetTimeIso(window, observedAtMs),
+    };
+}
+/** A rate-limit window, classified by its duration; unknown durations are dropped. */
+function parseRateLimitWindow(window, observedAtMs) {
+    if (!isRecord(window) || typeof window.limit_window_seconds !== "number")
+        return null;
+    const durationSeconds = window.limit_window_seconds;
+    const kind = WINDOW_KIND_BY_DURATION[durationSeconds];
+    const value = kind ? parseWindowValue(window, observedAtMs) : null;
+    if (!kind || !value)
+        return null;
+    const endsAtMs = value.resetTimeIso ? Date.parse(value.resetTimeIso) : Number.NaN;
+    const startedAtMs = endsAtMs - durationSeconds * 1000;
+    if (Number.isFinite(startedAtMs) && startedAtMs < observedAtMs && observedAtMs < endsAtMs) {
+        value.fixedWindow = { startedAtIso: new Date(startedAtMs).toISOString() };
+    }
+    return { kind, value };
+}
+function derivePlanLabel(planType) {
+    const normalized = (planType ?? "").trim().toLowerCase();
+    if (normalized === "team" || normalized === "business")
+        return "OpenAI (Business)";
+    if (normalized.includes("pro"))
+        return "OpenAI (Pro)";
+    if (normalized.includes("plus"))
+        return "OpenAI (Plus)";
+    if (planType)
+        return `OpenAI (${planType})`;
+    return "OpenAI";
+}
+const OPENAI_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const OPENAI_AUTH_CACHE_MAX_AGE_MS = 5_000;
+// Not `opencode`: in OpenCode 2 its OAuth entry is the Console login, which
+// authorizes Console APIs, not OpenAI.
+export const OPENAI_AUTH_SOURCE_KEYS = ["openai", "codex", "chatgpt"];
+/** Credits only for an account OpenAI says has them (or unlimited); decimal strings stay exact. */
+function parseCredits(value) {
+    if (!isRecord(value) || (value.has_credits !== true && value.unlimited !== true))
+        return undefined;
+    const balance = value.balance;
+    return {
+        ...(typeof balance === "string" && /^(?:0|[1-9]\d*)(?:\.\d+)?$/u.test(balance)
+            ? { balance }
+            : {}),
+        ...(value.unlimited === true ? { unlimited: true } : {}),
+    };
+}
+/** One row's OpenAI sign-in: `none` for a row that is not an OAuth login or has no token. */
+export function resolveOpenAIOAuth(row) {
+    const sourceKey = OPENAI_AUTH_SOURCE_KEYS.find((key) => key === row.integrationId);
+    const login = sourceKey ? readOAuthLogin(row) : null;
+    if (!sourceKey || !login)
+        return { state: "none" };
+    if (login.state === "failed")
+        return { state: "failed", sourceKey, error: login.error };
+    const { accessToken } = login;
+    if (!accessToken)
+        return { state: "none" };
+    const jwt = parseJwtPayload(accessToken);
+    const storedAccountId = login.fields.accountId;
+    return {
+        state: "configured",
+        sourceKey,
+        accessToken,
+        refreshToken: login.refreshToken,
+        expiresAt: login.expiresAt,
+        accountId: jwt?.["https://api.openai.com/auth"]?.chatgpt_account_id ??
+            (typeof storedAccountId === "string" ? storedAccountId : undefined),
+    };
+}
+/**
+ * The login OpenCode reports as active, the first of `openai`, `codex`, `chatgpt` with a token
+ * or a resolve error (cached briefly).
+ */
+export async function readOpenAIAuthCached() {
+    const rows = activeCredentialRows(await readActiveCredentialRowsCached({
+        maxAgeMs: OPENAI_AUTH_CACHE_MAX_AGE_MS,
+        integrationIds: OPENAI_AUTH_SOURCE_KEYS,
+    }));
+    for (const sourceKey of OPENAI_AUTH_SOURCE_KEYS) {
+        const row = rows.find((active) => active.integrationId === sourceKey);
+        const oauth = row ? resolveOpenAIOAuth(row) : { state: "none" };
+        if (oauth.state !== "none")
+            return oauth;
+    }
+    return { state: "none" };
+}
+/** Every stored OpenAI login, OAuth and API key; a failed one stays so it shows as an error. */
+export async function readOpenAILogins() {
+    const rows = await readCredentialRows(OPENAI_AUTH_SOURCE_KEYS, { methods: ["oauth", "key"] });
+    return rows.map((row) => {
+        if (row.value.type === "api")
+            return { row };
+        const oauth = resolveOpenAIOAuth(row);
+        return oauth.state === "none" ? { row } : { row, oauth };
+    });
+}
+/**
+ * Who OpenAI is signed in as: each OAuth sign-in's account (or token), and each other login by
+ * its connection, since its rows do not depend on a secret. A failed login can't be told apart.
+ */
+export async function openaiLoginsIdentity(logins) {
+    return loginListIdentity("openai", await Promise.all(logins.map(async ({ row, oauth }) => {
+        if (row.resolveError !== undefined || oauth?.state === "failed") {
+            return { row, identity: null };
+        }
+        const principal = oauth
+            ? oauth.accountId
+                ? { kind: "stable-id", value: oauth.accountId }
+                : { kind: "credential", value: oauth.refreshToken ?? oauth.accessToken }
+            : { kind: "stable-id", value: `connection:${row.id}` };
+        return {
+            row,
+            identity: await deriveResolvedAuthIdentity({ providerId: "openai", principal }),
+        };
+    })));
+}
+/** A login label that can go into a shell command unquoted and is not read as an option. */
+const SHELL_SAFE_LOGIN_LABEL = /^[A-Za-z0-9._@][A-Za-z0-9._@-]*$/u;
+/** OpenAI's error codes are short snake_case words, e.g. `no_matching_rule`. */
+const OPENAI_ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/u;
+/**
+ * Only OpenAI's short error code, never the free-text body, which can echo
+ * account details.
+ */
+function openAIErrorCode(body) {
+    try {
+        const parsed = JSON.parse(body);
+        const code = parsed?.error?.code;
+        return typeof code === "string" && OPENAI_ERROR_CODE.test(code) ? code : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function parseUsageResponse(data) {
+    const observedAtMs = Date.now();
+    const windows = {};
+    // Two windows of the same duration that disagree are both dropped instead of guessing.
+    const conflictingKinds = new Set();
+    for (const window of [data.rate_limit?.primary_window, data.rate_limit?.secondary_window]) {
+        const parsed = parseRateLimitWindow(window, observedAtMs);
+        if (!parsed || conflictingKinds.has(parsed.kind))
+            continue;
+        const existing = windows[parsed.kind];
+        if (!existing) {
+            windows[parsed.kind] = parsed.value;
+        }
+        else if (existing.percentRemaining !== parsed.value.percentRemaining ||
+            existing.resetTimeIso !== parsed.value.resetTimeIso) {
+            delete windows[parsed.kind];
+            conflictingKinds.add(parsed.kind);
+        }
+    }
+    const individualLimit = parseWindowValue(data.spend_control?.individual_limit, observedAtMs, "remaining_percent");
+    if (!windows.monthly && individualLimit)
+        windows.monthly = individualLimit;
+    const codeReview = parseWindowValue(data.code_review_rate_limit?.primary_window, observedAtMs);
+    if (codeReview)
+        windows.codeReview = codeReview;
+    const credits = parseCredits(data.credits);
+    if (Object.keys(windows).length === 0 && credits === undefined) {
+        return { success: false, error: "No quota data" };
+    }
+    return {
+        success: true,
+        label: derivePlanLabel(data.plan_type),
+        windows,
+        ...(credits ? { credits } : {}),
+    };
+}
+export async function queryOpenAIQuota(options) {
+    const { auth } = options;
+    if (auth.state === "failed") {
+        // Signing in again leaves a broken login with another label in place
+        // (#316), so name the command that removes it when the label is known.
+        // Not trimmed: " Work " is a different login than "Work".
+        const label = options.loginLabel;
+        const fix = label && SHELL_SAFE_LOGIN_LABEL.test(label)
+            ? `Run \`opencode auth logout ${auth.sourceKey} ${label}\`, then \`opencode auth login openai\`.`
+            : "Run `opencode auth login openai`.";
+        return {
+            success: false,
+            error: `OpenAI sign-in could not be refreshed: ${auth.error}. ${fix}`,
+        };
+    }
+    if (auth.expiresAt && auth.expiresAt < Date.now()) {
+        return { success: false, error: "Token expired" };
+    }
+    const headers = {
+        Authorization: `Bearer ${auth.accessToken}`,
+        "User-Agent": "OpenCode-Quota-Toast/1.0",
+        ...(auth.accountId ? { "ChatGPT-Account-Id": auth.accountId } : {}),
+    };
+    const reply = await requestJson(OPENAI_USAGE_URL, {
+        headers,
+        secrets: [auth.accessToken, auth.accountId],
+        timeoutMs: options.requestTimeoutMs,
+    });
+    if (!reply.ok) {
+        const { failure } = reply;
+        const facts = failureFacts(failure);
+        if (failure.kind !== "http")
+            return { success: false, error: failure.detail, facts };
+        const code = openAIErrorCode(failure.detail);
+        return {
+            success: false,
+            error: `OpenAI API error ${failure.status}${code ? ` (${code})` : ""}`,
+            facts,
+        };
+    }
+    try {
+        return parseUsageResponse(reply.json);
+    }
+    catch (err) {
+        return {
+            success: false,
+            error: sanitizeDisplayText(err instanceof Error ? err.message : String(err)),
+        };
+    }
+}
+//# sourceMappingURL=openai.js.map

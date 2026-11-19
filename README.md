@@ -4,7 +4,7 @@ Install the same shared OpenCode configuration on multiple machines from a Git r
 
 ## Install on another device
 
-1. Install [OpenCode Desktop](https://opencode.ai/docs/), Git, and Node.js 22 or newer with npm on Windows, macOS, or Linux. Use a checkout outside the live OpenCode config directory. If using a ZIP, extract it and skip the Git commands below. The first install needs network access to provision Playwright MCP and Chromium. OpenCode downloads its pinned registry plugins on first startup.
+1. Install [OpenCode Desktop](https://opencode.ai/docs/), Git, and Node.js 22.13 or newer with npm on Windows, macOS, or Linux. Use a checkout outside the live OpenCode config directory. If using a ZIP, extract it and skip the Git commands below. The first install needs network access to provision Quota's runtime dependencies, Playwright MCP, and Chromium. OpenCode downloads its pinned registry plugins on first startup.
 2. Clone the setup repository (replace `YOUR_REPO_URL` with its actual URL) and choose your tested revision:
 
    ```sh
@@ -47,6 +47,8 @@ After takeover, open Desktop in a folder without project-specific OpenCode setti
 Use `node install.mjs --keep-local` on a device with an intentional local overlay. It also skips conflicting locally modified files and reports their names. Without the flag, the installer stops on conflicts before writing. Modified files are never silently replaced, and obsolete files are reported for manual removal rather than deleted. When migrating from the old Edge helper, back up the overlay privately and remove only `mcp.servers.edge` after the new `playwright` server is connected. The old Edge profile is not imported or deleted.
 
 ## Package notes
+
+`payload/quota-desktop` vendors the published MIT-licensed `@slkiser/opencode-quota` 6.3.0 distribution. Its Desktop bundle applies saved bar colors to the Quota dialog (resetting a color restores the theme) and gives both toolbar menu wrappers 3px padding without disabling wrapping. The installer installs locked runtime dependencies with npm; OpenCode supplies the UI host peers. Upstream package identity, license, and exports are preserved; source-only scripts and development dependencies are omitted.
 
 The router's `dist/router-tool.mjs` bundles the runtime `tool` export from `@opencode-ai/plugin@1.18.18` with Zod. Relative imports resolve it without relying on a parent `node_modules` directory. Desktop supplies its GUI host modules. Router Stats and the shadow-routing setup do not require the router's Windows-only executor. Optional tools referenced by skills (for example, Graphify) still need their own installation. Installer tests have run on Windows; macOS and Linux have not yet had a native Desktop smoke test.
 

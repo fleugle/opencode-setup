@@ -92,6 +92,10 @@ function install() {
   }
   collect(payload);
   if (!files.has('opencode.json')) fail('Payload must contain opencode.json');
+  const quotaPackage = 'quota-desktop/package.json';
+  const quotaLock = 'quota-desktop/package-lock.json';
+  const hasQuota = files.has(quotaPackage) && files.has(quotaLock);
+  if (!hasQuota && (files.has(quotaPackage) || files.has(quotaLock))) fail('Incomplete Quota Desktop payload');
   const packageName = 'playwright-mcp/package.json';
   const lockName = 'playwright-mcp/package-lock.json';
   const hasPlaywright = files.has(packageName) && files.has(lockName);
@@ -200,6 +204,16 @@ function install() {
   const manifestData = `${JSON.stringify({ version: 1, files: next }, null, 2)}\n`;
   const manifestChanged = !exists(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestData;
   if (takeOver && manifestChanged && exists(manifestPath)) backup(manifestName);
+  const provisionQuota = hasQuota && !conflicts.some(name => name === 'opencode.json' || name.startsWith('quota-desktop/'));
+  const quotaDir = path.join(target, 'quota-desktop');
+  const quotaModules = path.join(quotaDir, 'node_modules');
+  const quotaMarker = path.join(quotaDir, '.installed');
+  const quotaDigest = hasQuota && hash(Buffer.concat([files.get(quotaPackage), files.get(quotaLock)]));
+  function needsQuota() {
+    for (const item of [quotaModules, quotaMarker]) safePath(item);
+    return !(exists(quotaMarker)?.isFile() && fs.readFileSync(quotaMarker, 'utf8') === quotaDigest &&
+      ['@opencode/plugin', '@opentelemetry/api', 'jsonc-parser'].every(name => exists(path.join(quotaModules, name, 'package.json'))?.isFile()));
+  }
   const provisionPlaywright = hasPlaywright && !conflicts.some(name => [packageName, lockName, 'opencode.json'].includes(name));
   const dir = path.join(target, 'playwright-mcp');
   const modules = path.join(dir, 'node_modules');
@@ -214,6 +228,19 @@ function install() {
       fs.readFileSync(marker, 'utf8') === digest &&
       spawnSync(process.execPath, ['-e', "const fs=require('node:fs');const p=require('playwright');process.exit(fs.existsSync(p.chromium.executablePath())?0:1)"], { cwd: dir, env, stdio: 'ignore' }).status === 0);
   }
+  function npmCi(cwd, component, env) {
+    const candidates = [
+      process.env.npm_execpath,
+      path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+      ...((process.env.PATH || '').split(path.delimiter).map(dir => path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js'))),
+      '/usr/share/nodejs/npm/bin/npm-cli.js'
+    ].filter(Boolean);
+    const npm = candidates.find(candidate => exists(candidate)?.isFile());
+    if (!npm && process.platform === 'win32') fail('npm CLI not found; install Node.js with npm');
+    const args = ['ci', '--ignore-scripts', '--no-audit', '--no-fund'];
+    const result = spawnSync(npm ? process.execPath : 'npm', npm ? [npm, ...args] : args, { cwd, env, stdio: 'ignore' });
+    if (result.status !== 0) fail(`${component} provisioning failed (npm ci); check npm and network access, then rerun the installer`);
+  }
   if (dryRun) {
     console.log(`Preview for ${target}:`);
     for (const name of backups.keys()) console.log(`  Back up: ${name}`);
@@ -221,6 +248,7 @@ function install() {
     if (manifestChanged) console.log(`  Write: ${manifestName}`);
     if (conflicts.length) console.log(`  Keep local: ${conflicts.join(', ')}`);
     if (stale.length) console.log(`  Obsolete managed files left in place: ${stale.join(', ')}`);
+    if (provisionQuota && needsQuota()) console.log('  Ensure pinned Quota Desktop dependencies are installed');
     if (provisionPlaywright && needsPlaywright())
       console.log('  Ensure pinned Playwright MCP and Chromium are installed');
     return;
@@ -247,28 +275,19 @@ function install() {
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     writeAtomic(dest, data);
   }
-  // Track successful file writes so a failed browser download can be retried normally.
+  // Track successful file writes so failed provisioning can be retried normally.
   if (manifestChanged) writeAtomic(manifestPath, manifestData);
-  if (provisionPlaywright) {
-    if (needsPlaywright()) {
-      const candidates = [
-        process.env.npm_execpath,
-        path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-        ...((process.env.PATH || '').split(path.delimiter).map(dir => path.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js'))),
-        '/usr/share/nodejs/npm/bin/npm-cli.js'
-      ].filter(Boolean);
-      const npm = candidates.find(candidate => exists(candidate)?.isFile());
-      if (!npm && process.platform === 'win32') fail('npm CLI not found; install Node.js with npm');
-      console.log('Installing pinned Playwright MCP and Chromium...');
-      const run = (label, executable, args) => {
-        const result = spawnSync(executable, args, { cwd: dir, env, stdio: 'ignore' });
-        if (result.status !== 0) fail(`Playwright provisioning failed (${label}); check npm and network access, then rerun the installer`);
-      };
-      const npmArgs = ['ci', '--ignore-scripts', '--no-audit', '--no-fund'];
-      run('npm ci', npm ? process.execPath : 'npm', npm ? [npm, ...npmArgs] : npmArgs);
-      run('Chromium download', process.execPath, [playwright, 'install', 'chromium']);
-      writeAtomic(marker, digest);
-    }
+  if (provisionQuota && needsQuota()) {
+    console.log('Installing pinned Quota Desktop dependencies...');
+    npmCi(quotaDir, 'Quota Desktop');
+    writeAtomic(quotaMarker, quotaDigest);
+  }
+  if (provisionPlaywright && needsPlaywright()) {
+    console.log('Installing pinned Playwright MCP and Chromium...');
+    npmCi(dir, 'Playwright', env);
+    const result = spawnSync(process.execPath, [playwright, 'install', 'chromium'], { cwd: dir, env, stdio: 'ignore' });
+    if (result.status !== 0) fail('Playwright provisioning failed (Chromium download); check npm and network access, then rerun the installer');
+    writeAtomic(marker, digest);
   }
   console.log(`Installed ${writes.length} file(s) into ${target}${conflicts.length ? `; kept local: ${conflicts.join(', ')}` : ''}`);
   if (stale.length) console.log(`Obsolete managed files left in place; review and prune manually: ${stale.join(', ')}`);

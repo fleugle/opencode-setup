@@ -1,0 +1,53 @@
+import { AGY_AUTH_KEYS, AGY_FLAVOR, compareAgyBuckets } from "../lib/google-agy.js";
+import { parseProviderModelRef } from "../lib/provider-model-matching.js";
+import { FIVE_HOUR, keySlug, quotaRow, WEEKLY } from "./contract.js";
+import { fetchGoogleProviderQuota, googleCachePolicy, isGoogleProviderAvailable, remainingCount, } from "./google-oauth-provider.js";
+function formatFamilyLabel(family) {
+    if (family === "Gemini Models")
+        return "Gemini";
+    if (family === "Claude and GPT models")
+        return "Claude/GPT";
+    return family;
+}
+/**
+ * `<family>.<window>`, for example `claude_gpt.weekly`, labelled "Claude/GPT Weekly", with the
+ * remaining count when AGY gives one (AGY does not name its unit).
+ */
+function agyRow(bucket) {
+    const family = formatFamilyLabel(bucket.family);
+    const familyKey = keySlug(family);
+    if (!familyKey)
+        return undefined;
+    const slot = bucket.window === "weekly" ? WEEKLY : FIVE_HOUR;
+    const remaining = remainingCount(bucket.remainingAmount, "unit");
+    return {
+        ...quotaRow({
+            key: `${familyKey}.${slot.key}`,
+            label: `${family} ${slot.label}`,
+            window: slot.window,
+            percentRemaining: bucket.percentRemaining,
+            resetsAt: bucket.resetTimeIso,
+        }),
+        ...(remaining ? { remaining } : {}),
+    };
+}
+const AGY_PROVIDER = {
+    quota: AGY_FLAVOR,
+    compareBuckets: compareAgyBuckets,
+    row: agyRow,
+};
+/** An AGY runtime id, or an opencode-antigravity-auth model (`google/antigravity-…`). */
+function isAgyModel(model) {
+    const { providerId, modelId } = parseProviderModelRef(model);
+    if (providerId === "google")
+        return modelId.startsWith("antigravity-");
+    return AGY_AUTH_KEYS.includes(providerId);
+}
+export const googleAgyProvider = {
+    id: "google-agy",
+    cachePolicy: googleCachePolicy(AGY_PROVIDER),
+    isAvailable: (ctx) => isGoogleProviderAvailable(AGY_PROVIDER, ctx),
+    matchesCurrentModel: isAgyModel,
+    fetch: (ctx) => fetchGoogleProviderQuota(AGY_PROVIDER, ctx),
+};
+//# sourceMappingURL=google-agy.js.map
