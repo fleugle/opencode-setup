@@ -65,5 +65,11 @@
     "window": {
       "openai": "five_hour"
     }
+  },
+  "colors": {
+    "good": "#50dc53",
+    "empty": "#454545",
+    "warning": "#feb434",
+    "low": "#ff6666"
   }
 }
